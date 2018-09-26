@@ -2,8 +2,8 @@ package edu.nus
 
 import java.io.File
 
-class KmerAnalyzer(val targetCount: File, val controlCount: File) {
-
+class KmerAnalyzer(val settings: Desirable) {
+    val bf = BloomFilter(settings.K,8*3000000000L+7, listOf(2,3,5,7,11,13))
     fun generateKmerSpectrum(countFile: File): HashMap<Int, Long> {
         val spectrum = HashMap<Int, Long>()
         countFile.forEachLine {
@@ -14,7 +14,7 @@ class KmerAnalyzer(val targetCount: File, val controlCount: File) {
     }
 
     fun getSpectrumTroughPeak(countFile: File): Pair<Int, Int> { // get first local minimum in kmer spectrum
-        val spectrum = generateKmerSpectrum(countFile).toList()
+        val spectrum = generateKmerSpectrum(countFile).toList().sortedBy { it.first }
         val total = spectrum.map { it.first * it.second }.sum()
         var accumulate = 0L
         var trough = spectrum.indices.first {
@@ -23,28 +23,49 @@ class KmerAnalyzer(val targetCount: File, val controlCount: File) {
             (accumulate > total * 0.5)
         }
         if (accumulate > total * 0.5) trough = 0
-        val peak = spectrum.maxBy { it.first * it.second }!!.first
+        val peak = spectrum.filter { it.first>=trough }.maxBy { it.first * it.second }!!.first
         println("[KmerSpectrum]\nTrough (Error threshold): $trough\nPeak (Coverage): $peak")
         return Pair(trough, peak)
     }
 
-    fun filterTargetByControl(targetTroughPeak: Pair<Int, Int>, controlTroughPeak: Pair<Int, Int>): HashSet<String> {
-        val targetReader = targetCount.bufferedReader()
-        val controlReader = controlCount.bufferedReader()
+    fun filterTargetKmerByControl(targetTroughPeak: Pair<Int, Int>, controlTroughPeak: Pair<Int, Int>): HashMap<Long,Long> {
+        val targetReader = settings.targetCount!!.bufferedReader()
+        val controlReader = settings.controlCount!!.bufferedReader()
         var (controlKmer, controlFreq) = Pair(" "," ")
-        val kmers = HashSet<String>()
+        val kmers = HashMap<Long,Long>()
         while (targetReader.ready()) {
             val (targetKmer, targetFreq) = targetReader.readLine().split('\t')
             if (targetFreq.toInt() < targetTroughPeak.first) continue
+            bf.insert(Util.canonical(targetKmer))
             while ((targetKmer > controlKmer) && controlReader.ready()){
                 val tokens = controlReader.readLine().split('\t')
                 controlKmer = tokens[0]
                 controlFreq = tokens[1]
             }
             if (targetKmer == controlKmer && controlFreq.toInt()>=controlTroughPeak.first) continue
-            kmers += targetKmer
+            kmers[Util.canonical(targetKmer)] = targetFreq.toLong()
         }
-        println("[FilterKmer] ${kmers.size} Kmers left")
+        println("[Kmer] ${kmers.size} exclusive Kmers")
         return kmers
+    }
+    fun filterTargetByControl(target: List<File>, targetTroughPeak: Pair<Int, Int>, controlTroughPeak: Pair<Int, Int>): HashMap<Long,Long>  {
+        val exKmer = filterTargetKmerByControl(targetTroughPeak, controlTroughPeak)
+        for (f in target){
+            val seqReader = ReadFileReader(f,"Exclusive Read Screen")
+            while (seqReader.nextRead()){
+                val kmerList = seqReader.decomposeKmer(settings.K)
+                if (!kmerList.any{ it in exKmer}) continue
+                kmerList.filter { bf.contains(it) } .forEach { exKmer[it] = 1 }
+            }
+        }
+        val targetReader = settings.targetCount!!.bufferedReader()
+        while (targetReader.ready()) {
+            val (targetKmer, targetFreq) = targetReader.readLine().split('\t')
+            val kmer = Util.canonical(targetKmer)
+            val freq = targetFreq.toLong()
+            if (!exKmer.contains(kmer)) continue
+            if (freq < targetTroughPeak.first) exKmer.remove(kmer) else exKmer[kmer] = freq
+        }
+        return exKmer
     }
 }
