@@ -77,7 +77,7 @@ class Assembler(val settings: Desirable) {
 
     private fun loadReadsOnKmer() {
         val k = settings.K
-        for (file in settings.target){
+        for (file in settings.files[0]){
             val seqReader = ReadFileReader(file,"Load Reads On De Bruijn Graph")
             while (seqReader.nextRead()){
                 val code = (file.absolutePath+seqReader.readname).hashCode()

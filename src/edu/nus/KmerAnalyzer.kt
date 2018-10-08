@@ -4,7 +4,9 @@ import java.io.File
 
 class KmerAnalyzer(val settings: Desirable) {
     val bf = BloomFilter(settings.K,8*3000000000L+7, listOf(2,3,5,7,11,13))
-    fun generateKmerSpectrum(countFile: File): HashMap<Int, Long> {
+    val troughAndPeak = settings.countFiles.map { getSpectrumTroughPeak(it) }
+
+    private fun generateKmerSpectrum(countFile: File): HashMap<Int, Long> {
         val spectrum = HashMap<Int, Long>()
         countFile.forEachLine {
             val freq = it.split("\t")[1].toInt()
@@ -12,7 +14,6 @@ class KmerAnalyzer(val settings: Desirable) {
         }
         return spectrum
     }
-
     fun getSpectrumTroughPeak(countFile: File): Pair<Int, Int> { // get first local minimum in kmer spectrum
         val spectrum = generateKmerSpectrum(countFile).toList().sortedBy { it.first }
         val total = spectrum.map { it.first * it.second }.sum()
@@ -28,29 +29,26 @@ class KmerAnalyzer(val settings: Desirable) {
         return Pair(trough, peak)
     }
 
-    fun filterTargetKmerByControl(targetTroughPeak: Pair<Int, Int>, controlTroughPeak: Pair<Int, Int>): HashMap<Long,Long> {
-        val targetReader = settings.targetCount!!.bufferedReader()
-        val controlReader = settings.controlCount!!.bufferedReader()
-        var (controlKmer, controlFreq) = Pair(" "," ")
+    fun filterTargetKmerByControl(): HashMap<Long,Long> {
+        val filesReader = settings.countFiles.map { it.bufferedReader() }
+        val record = Array<List<String>>(filesReader.size,{ listOf(" "," ") })
         val kmers = HashMap<Long,Long>()
-        while (targetReader.ready()) {
-            val (targetKmer, targetFreq) = targetReader.readLine().split('\t')
-            if (targetFreq.toInt() < targetTroughPeak.first) continue
-            bf.insert(Util.canonical(targetKmer))
-            while ((targetKmer > controlKmer) && controlReader.ready()){
-                val tokens = controlReader.readLine().split('\t')
-                controlKmer = tokens[0]
-                controlFreq = tokens[1]
-            }
-            if (targetKmer == controlKmer && controlFreq.toInt()>=controlTroughPeak.first) continue
-            kmers[Util.canonical(targetKmer)] = targetFreq.toLong()
+        while (filesReader[0].ready()) {
+            record[0] = filesReader[0].readLine().split('\t')
+            if (record[0][1].toInt() < troughAndPeak[0].first) continue
+            bf.insert(Util.canonical(record[0][0]))
+            for ( i in 1 until filesReader.size)
+                while ((record[0][0] > record[i][0]) && filesReader[i].ready())
+                    record[i] = filesReader[i].readLine().split('\t')
+            if ((1 until record.size).any { i -> record[i][0] == record[0][0] && record[i][1].toInt()>=troughAndPeak[i].first}) continue
+            kmers[Util.canonical(record[0][0])] = record[0][1].toLong()
         }
         println("[Kmer] ${kmers.size} exclusive Kmers")
         return kmers
     }
-    fun filterTargetByControl(target: List<File>, targetTroughPeak: Pair<Int, Int>, controlTroughPeak: Pair<Int, Int>): HashMap<Long,Long>  {
-        val exKmer = filterTargetKmerByControl(targetTroughPeak, controlTroughPeak)
-        for (f in target){
+    fun filterTargetByControl(): HashMap<Long,Long>  {
+        val exKmer = filterTargetKmerByControl()
+        for (f in settings.files[0]){
             val seqReader = ReadFileReader(f,"Exclusive Read Screen")
             while (seqReader.nextRead()){
                 val kmerList = seqReader.decomposeKmer(settings.K)
@@ -58,13 +56,13 @@ class KmerAnalyzer(val settings: Desirable) {
                 kmerList.filter { bf.contains(it) } .forEach { exKmer[it] = 1 }
             }
         }
-        val targetReader = settings.targetCount!!.bufferedReader()
+        val targetReader = settings.countFiles[0].bufferedReader()
         while (targetReader.ready()) {
             val (targetKmer, targetFreq) = targetReader.readLine().split('\t')
             val kmer = Util.canonical(targetKmer)
             val freq = targetFreq.toLong()
             if (!exKmer.contains(kmer)) continue
-            if (freq < targetTroughPeak.first) exKmer.remove(kmer) else exKmer[kmer] = freq
+            if (freq < troughAndPeak[0].first) exKmer.remove(kmer) else exKmer[kmer] = freq
         }
         return exKmer
     }
