@@ -53,9 +53,10 @@ class ReadFileReader(file: File, description: String) {
     }
 
     fun decomposeKmer(K: Int): List<Long> {
+        val mod = (1L shl 2*K)-1
         var kmer = (1..K - 1).map { (seq!![it - 1].toLong() ushr 1 and 3) shl (2 * (K - 1 - it)) }.sum()
         return (K..seq!!.length).map {
-            kmer = (kmer shl 1) + (seq!![it - 1].toLong() ushr 1 and 3)
+            kmer = ((kmer shl 1) and mod) + (seq!![it - 1].toLong() ushr 1 and 3)
             Util.canonical(kmer).first
         }
     }

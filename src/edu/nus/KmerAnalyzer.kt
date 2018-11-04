@@ -1,5 +1,6 @@
 package edu.nus
 
+import me.tongfei.progressbar.ProgressBar
 import java.io.File
 
 class KmerAnalyzer(val settings: Desirable) {
@@ -8,10 +9,13 @@ class KmerAnalyzer(val settings: Desirable) {
 
     private fun generateKmerSpectrum(countFile: File): HashMap<Int, Long> {
         val spectrum = HashMap<Int, Long>()
+        val pb = ProgressBar("Kmers Spectrum in ${countFile.name}",countFile.length())
         countFile.forEachLine {
+            pb.stepBy(it.length+1L)
             val freq = it.split("\t")[1].toInt()
             spectrum[freq] = spectrum.getOrDefault(freq, 0) + 1
         }
+        pb.close()
         return spectrum
     }
     fun getSpectrumTroughPeak(countFile: File): Pair<Int, Int> { // get first local minimum in kmer spectrum
@@ -31,10 +35,13 @@ class KmerAnalyzer(val settings: Desirable) {
 
     fun filterTargetKmerByControl(): HashMap<Long,Long> {
         val filesReader = settings.countFiles.map { it.bufferedReader() }
+        val pb = ProgressBar("Collect Exclusive Kmers",settings.countFiles[0].length())
         val record = Array<List<String>>(filesReader.size,{ listOf(" "," ") })
         val kmers = HashMap<Long,Long>()
         while (filesReader[0].ready()) {
-            record[0] = filesReader[0].readLine().split('\t')
+            val line = filesReader[0].readLine()
+            pb.stepBy(line.length+1L)
+            record[0] = line.split('\t')
             if (record[0][1].toInt() < troughAndPeak[0].first) continue
             bf.insert(Util.canonical(record[0][0]))
             for ( i in 1 until filesReader.size)
@@ -43,13 +50,14 @@ class KmerAnalyzer(val settings: Desirable) {
             if ((1 until record.size).any { i -> record[i][0] == record[0][0] && record[i][1].toInt()>=troughAndPeak[i].first}) continue
             kmers[Util.canonical(record[0][0])] = record[0][1].toLong()
         }
+        pb.close()
         println("[Kmer] ${kmers.size} exclusive Kmers")
         return kmers
     }
     fun filterTargetByControl(): HashMap<Long,Long>  {
         val exKmer = filterTargetKmerByControl()
         for (f in settings.files[0]){
-            val seqReader = ReadFileReader(f,"Exclusive Read Screen")
+            val seqReader = ReadFileReader(f,"Collect Exclusive Read")
             while (seqReader.nextRead()){
                 val kmerList = seqReader.decomposeKmer(settings.K)
                 if (!kmerList.any{ it in exKmer}) continue
@@ -64,6 +72,7 @@ class KmerAnalyzer(val settings: Desirable) {
             if (!exKmer.contains(kmer)) continue
             if (freq < troughAndPeak[0].first) exKmer.remove(kmer) else exKmer[kmer] = freq
         }
+        println("[Kmer] ${exKmer.size} Kmers in reads containing exclusive Kmers")
         return exKmer
     }
 }

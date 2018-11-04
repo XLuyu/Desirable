@@ -16,6 +16,7 @@ class Desirable : CliktCommand(help =
 """) {
     val threads by option(help = "Threads to use, default by the CPU core number").int().default(Runtime.getRuntime().availableProcessors())
     val K by option("-k", help = "Kmer size").int().default(31).validate { if (it>32) fail("only support K <= 32") else Util.K = it }
+    val minLength by option("-m", help = "minimum contig length to report").int().default(200)
     val output by option("-o", help = "Output file path").file().default(File("DesirableOut.fasta"))
     val tmpDir: File by option("-d", help = "Temporary folder for intermediate results").file(exists = false).default(File("DesirableTmp"))
     val files: Array<ArrayList<File>> by argument().multiple().transformAll { tokenizer(it) }
@@ -57,7 +58,7 @@ class Desirable : CliktCommand(help =
         val assembler = Assembler(this)
         assembler.constructGraphFromKmerSet(exclusiveKmers)
         assembler.getContigByTraverse()
-        assembler.writeContigsToFasta(200)
+        assembler.writeContigsToFasta(minLength)
 //        tmpDir.deleteRecursively()
     }
 }
