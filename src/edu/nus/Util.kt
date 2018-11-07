@@ -22,7 +22,7 @@ object Util {
     fun reverse(kmer: Long): Long = (2..2 * K step 2).map { kmer ushr (2 * K - it) and 3 xor 2 shl (it - 2) }.sum()
     fun canonical(kmer: String): Long = canonical(encode(kmer)).first
     fun canonical(kmer: Long): Pair<Long, Int> {
-        val rc = reverse(kmer);
+        val rc = reverse(kmer)
         return if (kmer < rc) Pair(kmer, 0) else Pair(rc, 1)
     }
 }
@@ -52,7 +52,8 @@ class ReadFileReader(file: File, description: String) {
         return true
     }
 
-    fun decomposeKmer(K: Int): List<Long> {
+    fun decomposeKmer(): List<Long> {
+        val K = Desirable.K
         val mod = (1L shl 2*K)-1
         var kmer = (1..K - 1).map { (seq!![it - 1].toLong() ushr 1 and 3) shl (2 * (K - 1 - it)) }.sum()
         return (K..seq!!.length).map {
@@ -60,21 +61,4 @@ class ReadFileReader(file: File, description: String) {
             Util.canonical(kmer).first
         }
     }
-}
-
-class BloomFilter(val K: Int, maxSize: Long, hashSeeds: List<Int>) {
-    private val bitSet = Array<Long>((maxSize / 64 + 1).toInt(), { 0L })
-    private val hashes = hashSeeds.map { seed ->
-        { k: Long -> (0..K - 1).fold(0L, { hash, i -> (hash * seed + (k ushr (i * 2) and 3)) % maxSize }) }
-    }
-
-    init {
-        if (maxSize > 64L * 2000000000) println("[Warning] BloomFilter size is too large!")
-    }
-
-    fun insert(k: Long) = hashes.map { it(k) }.forEach {
-        bitSet[(it / 64).toInt()] = bitSet[(it / 64).toInt()] or (1L shl (it % 64).toInt())
-    }
-
-    fun contains(k: Long) = hashes.map { it(k) }.all { (bitSet[(it / 64).toInt()] and (1L shl (it % 64).toInt())) != 0L }
 }

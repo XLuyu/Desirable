@@ -8,6 +8,7 @@ class Assembler() {
     val nodes = HashMap<Pair<String,Int>,Node>()
     val contigs = mutableListOf<String>()
 
+    data class Edge(val readSet: HashSet<Int>, var seq:String)
     class Node(val kmer:String, val end:Int, val readStart: HashSet<Int>, val readEnd: HashSet<Int>) {
         val edges:ArrayList<Edge> = arrayListOf<Edge>()
         fun dest(i:Int):Pair<String,Int>{
@@ -16,9 +17,14 @@ class Assembler() {
         }
         fun dest(e:Edge):Pair<String,Int> = dest(edges.indexOf(e))
     }
-    data class Edge(val readSet: HashSet<Int>, var seq:String)
 
-    fun constructGraphFromKmerSet(kmers: HashMap<Long, Long>) {
+    fun constructGraphFromKmerSet(kmerfile: File) {
+        val kmers = HashMap<Long, Long>()
+        kmerfile.forEachLine {
+            val (kmer,count) = it.split('\t')
+            kmers[Util.canonical(kmer)] = count.toLong()
+        }
+        println("[Kmer] ${kmers.size} Kmers in reads containing exclusive Kmers")
         for ((kmerCode,_) in kmers) {
             val kmer = UtilString.canonical(Util.decode(kmerCode)).first
             nodes[Pair(kmer, 0)] = Node(kmer, 0, HashSet<Int>(), HashSet<Int>())
@@ -44,54 +50,6 @@ class Assembler() {
             }
         }
         println("[Assembly] de bruijn graph construction finished\nEdge: ${nodes.map { it.value.edges.size } .sum()}")
-    }
-    var debug = false
-    fun getContigByTraverse() {
-        val visit = HashSet<String>()
-        val readSet = HashSet<Int>()
-        fun compactChain(kmer:String, end:Int):Edge{
-            val tip = (if (end==0) kmer[0] else UtilString.supl[kmer.last()]).toString()
-            val node = nodes[Pair(kmer,end)]!!
-            if (node.edges.size!=1) return Edge(HashSet<Int>(),tip)
-            val (tkmer,reversed) = node.dest(0)
-            val edge = compactChain(tkmer,end xor reversed)
-            edge.seq += tip
-            return edge
-        }
-        fun dfs(kmer:String, end:Int):StringBuilder {
-            visit.add(kmer)
-            val node = nodes[Pair(kmer,end)]!!
-            val edge = node.edges
-            if (edge.isEmpty()) return StringBuilder()
-            readSet.addAll(node.readStart)
-            readSet.removeAll(node.readEnd)
-            val bestBranch = edge.maxBy{ (readSet intersect it.readSet).size}!!
-            val (tkmer,reversed) = node.dest(bestBranch)
-            bestBranch.readSet.removeAll(readSet)
-            return dfs(tkmer,end xor reversed).append(if (end==0) bestBranch.seq else UtilString.reverse(bestBranch.seq))
-        }
-        val leafs = arrayListOf<Pair<Pair<String,Int>,Int>>()
-//        for ((pair,node) in nodes)
-//            if (node.edges.size!=1 || nodes[Pair(pair.first,1-pair.second)]!!.edges.size!=1) {
-//                for (i in node.edges.indices) {
-//                    val (t, end) = node.dest(i)
-//                    node.edges[i] = compactChain(t, pair.second xor end)
-//                    if (pair.second == 1) node.edges[i].seq = UtilString.reverse(node.edges[i].seq)
-//                }
-//            }
-        for ((pair,node) in nodes)
-            if (node.edges.isEmpty()) {
-                leafs.add(Pair(pair,compactChain(pair.first,pair.second xor 1).seq.length-1))
-            }
-        leafs.sortBy { -it.second }
-        for ((pair,dist) in leafs)
-            if (!visit.contains(pair.first)){
-                readSet.clear()
-                val s = dfs(pair.first,pair.second xor 1)
-                        .append(if (pair.second==0) UtilString.reverse(pair.first) else pair.first)
-                contigs.add(s.toString())
-            }
-        println("[Assembly] ${contigs.size} contigs generated")
     }
 
     fun loadReadsOnKmer(files:Array<File>) {
@@ -130,6 +88,46 @@ class Assembler() {
         }
     }
 
+    fun getContigByTraverse() {
+        val visit = HashSet<String>()
+        val readSet = HashSet<Int>()
+        fun compactChain(kmer:String, end:Int):Edge{
+            val tip = (if (end==0) kmer[0] else UtilString.supl[kmer.last()]).toString()
+            val node = nodes[Pair(kmer,end)]!!
+            if (node.edges.size!=1) return Edge(HashSet<Int>(),tip)
+            val (tkmer,reversed) = node.dest(0)
+            val edge = compactChain(tkmer,end xor reversed)
+            edge.seq += tip
+            return edge
+        }
+        fun dfs(kmer:String, end:Int):StringBuilder {
+            visit.add(kmer)
+            val node = nodes[Pair(kmer,end)]!!
+            val edge = node.edges
+            if (edge.isEmpty()) return StringBuilder()
+            readSet.addAll(node.readStart)
+            readSet.removeAll(node.readEnd)
+            val bestBranch = edge.maxBy{ (readSet intersect it.readSet).size}!!
+            val (tkmer,reversed) = node.dest(bestBranch)
+            bestBranch.readSet.removeAll(readSet)
+            return dfs(tkmer,end xor reversed).append(if (end==0) bestBranch.seq else UtilString.reverse(bestBranch.seq))
+        }
+        val leafs = arrayListOf<Pair<Pair<String,Int>,Int>>()
+        for ((pair,node) in nodes)
+            if (node.edges.isEmpty()) {
+                leafs.add(Pair(pair,compactChain(pair.first,pair.second xor 1).seq.length-1))
+            }
+        leafs.sortBy { -it.second }
+        for ((pair,_) in leafs)
+            if (!visit.contains(pair.first)){
+                readSet.clear()
+                val s = dfs(pair.first,pair.second xor 1)
+                        .append(if (pair.second==0) UtilString.reverse(pair.first) else pair.first)
+                contigs.add(s.toString())
+            }
+        println("[Assembly] ${contigs.size} contigs generated")
+    }
+
     fun writeContigsToFasta(file: File, lengthLimit:Int = 0){
         println("Congtig > $lengthLimit: ${contigs.count { it.length>lengthLimit }}")
         val writer = file.writer()
@@ -137,15 +135,5 @@ class Assembler() {
             writer.write(">ExSeq${counter}_${contig.length}\n$contig\n")
         }
         writer.close()
-    }
-
-    fun constructGraphFromKmerSet(kmerfile: File) {
-        val kmers = HashMap<Long, Long>()
-        kmerfile.forEachLine {
-            val (kmer,count) = it.split('\t')
-            kmers[Util.canonical(kmer)] = count.toLong()
-        }
-        println("[Kmer] ${kmers.size} Kmers in reads containing exclusive Kmers")
-        constructGraphFromKmerSet(kmers)
     }
 }

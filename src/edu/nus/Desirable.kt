@@ -15,7 +15,7 @@ object Desirable : CliktCommand(help =
     where target sample is given with leading '+' and each background sample is given with leading '-'
 """) {
     val threads by option(help = "Threads to use, default by the CPU core number").int().default(Runtime.getRuntime().availableProcessors())
-    val K by option("-k", help = "Kmer size").int().default(31).validate { if (it>32) fail("only support K <= 32") else Util.K = it }
+    val K by option("-k", help = "Kmer size").int().default(31).validate { if (it>31 || it%2==0) fail("only support odd K < 32") else Util.K = it }
     val minLength by option("-m", help = "minimum contig length to report").int().default(200)
     val output by option("-o", help = "Output file path").file().default(File("DesirableOut.fasta"))
     val tmpDir: File by option("-d", help = "Temporary folder for intermediate results").file(exists = false).default(File("DesirableTmp"))
@@ -25,7 +25,6 @@ object Desirable : CliktCommand(help =
     val KMCDir = when {"indows" in platform -> "win"; "ac" in platform -> "mac"; else -> "linux" }
     val KMCPath = File(jarPath,KMCDir+File.separatorChar+if (platform.contains("indows")) "kmer_counter.exe" else "kmc")
     val KMCToolsPath = File(jarPath,KMCDir+File.separatorChar+if (platform.contains("indows")) "kmc_tools.exe" else "kmc_tools")
-    var countFiles: Array<File> = arrayOf()
 
     fun tokenizer(control: List<String>):Array<ArrayList<File>> {
         val illegalFile = control.filter { it!="+" && it!="-" }.filter { !File(it).isFile }
@@ -35,24 +34,7 @@ object Desirable : CliktCommand(help =
         var row = -1
         for (token in control)
             if (token=="+" || token=="-") row += 1 else fileGroup[row].add(File(token))
-        for ((i,fileList) in fileGroup.withIndex())
-            println((if (i==0) "Target     : " else "Background : ")+fileList.joinToString())
         return fileGroup
-    }
-    fun countKmerInFile(files: List<File>):File {
-        val filename = files.first().name
-        val countFile = File(tmpDir, "$filename.kc")
-        val format = (if (filename.contains("fastq") || filename.contains("fq")) "fastq" else "fasta") + if (filename.endsWith(".gz")) "gz" else ""
-        val arguments = "count -rcanonical " +
-                "-t $threads " +
-                "-k $K " +
-                "-c kmercount:2 " +
-                "-o ${countFile.path} " +
-                "-f $format ${files.joinToString(separator=" ") { it.path }}"
-//        println("[KmerCount] ====== start ======\n[KmerCount] Command: $arguments")
-//        val runtime = kotlin.system.measureTimeMillis { KAnalyzeModule.main(arguments.split(" ").toTypedArray()) }
-//        println("[KmerCount] finished in ${runtime/1000} seconds")
-        return countFile
     }
     fun logRuntime(module:String, info:String="", cmd:String){
         println("============== $module ==============\n$info")
@@ -66,13 +48,13 @@ object Desirable : CliktCommand(help =
         println("[OK] finished in ${runtime/1000} seconds")
     }
     override fun run() {
+        println("=== Info ===\n  Platform  : $platform\n  Thread    : $threads")
+        for ((i,fileList) in files.withIndex())
+            println((if (i==0) "  Target    : " else "  Background: ")+fileList.joinToString())
         tmpDir.mkdirs()
         val ko = KmerOperator(files)
         val exclusiveKmers = ko.run()
 //        val exclusiveKmers = arrayListOf(File(Desirable.tmpDir,"ExtendedKmer"),File(Desirable.tmpDir,"ExclusiveRead.fastq"))
-//        countFiles = files.map { countKmerInFile(it) }.toTypedArray()
-//        val ka = KmerAnalyzer(this)
-//        val exclusiveKmers = ka.filterTargetByControl()
         val assembler = Assembler()
         assembler.constructGraphFromKmerSet(exclusiveKmers[0])
         assembler.loadReadsOnKmer(exclusiveKmers.subList(1,2).toTypedArray())
