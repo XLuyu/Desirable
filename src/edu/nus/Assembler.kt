@@ -8,7 +8,7 @@ class Assembler() {
     val nodes = HashMap<Pair<String,Int>,Node>()
     val contigs = mutableListOf<String>()
 
-    data class Edge(val readSet: HashSet<Int>, var seq:String)
+    data class Edge(val readStart: HashSet<Int>,val readSet: HashSet<Int>,val readEnd: HashSet<Int>, var seq:String)
     class Node(val kmer:String, val end:Int, val readStart: HashSet<Int>, val readEnd: HashSet<Int>) {
         val edges:ArrayList<Edge> = arrayListOf<Edge>()
         fun dest(i:Int):Pair<String,Int>{
@@ -38,14 +38,18 @@ class Assembler() {
                 val (cp, cpr) = UtilString.canonical(c+prefix)
                 val (sc, scr) = UtilString.canonical(suffix+c)
                 if (Util.canonical(cp) in kmers && Util.canonical(cp)<kmerCode) {
-                    val newSet = HashSet<Int>()
-                    nodes[Pair(kmer, 0)]!!.edges.add(Edge(newSet, c.toString()))
-                    nodes[Pair(cp, 1-cpr)]!!.edges.add(Edge(newSet, if (cpr==0) kmer.last().toString() else UtilString.supl[kmer.last()].toString()))
+                    val newRead = HashSet<Int>()
+                    val newStart = HashSet<Int>()
+                    val newEnd = HashSet<Int>()
+                    nodes[Pair(kmer, 0)]!!.edges.add(Edge(newStart,newRead,newEnd, c.toString()))
+                    nodes[Pair(cp, 1-cpr)]!!.edges.add(Edge(newStart,newRead,newEnd, if (cpr==0) kmer.last().toString() else UtilString.supl[kmer.last()].toString()))
                 }
                 if (Util.canonical(sc) in kmers && Util.canonical(sc)<kmerCode) {
-                    val newSet = HashSet<Int>()
-                    nodes[Pair(kmer,1)]!!.edges.add(Edge(newSet,c.toString()))
-                    nodes[Pair(sc, scr)]!!.edges.add(Edge(newSet, if (scr==0) kmer.first().toString() else UtilString.supl[kmer.first()].toString()))
+                    val newRead = HashSet<Int>()
+                    val newStart = HashSet<Int>()
+                    val newEnd = HashSet<Int>()
+                    nodes[Pair(kmer,1)]!!.edges.add(Edge(newStart,newRead,newEnd,c.toString()))
+                    nodes[Pair(sc, scr)]!!.edges.add(Edge(newStart,newRead,newEnd, if (scr==0) kmer.first().toString() else UtilString.supl[kmer.first()].toString()))
                 }
             }
         }
@@ -90,27 +94,40 @@ class Assembler() {
 
     fun getContigByTraverse() {
         val visit = HashSet<String>()
-        val readSet = HashSet<Int>()
-        fun compactChain(kmer:String, end:Int):Edge{
-            val tip = (if (end==0) kmer[0] else UtilString.supl[kmer.last()]).toString()
-            val node = nodes[Pair(kmer,end)]!!
-            if (node.edges.size!=1) return Edge(HashSet<Int>(),tip)
-            val (tkmer,reversed) = node.dest(0)
-            val edge = compactChain(tkmer,end xor reversed)
-            edge.seq += tip
-            return edge
+        fun compactChain(sKmer:String, sEnd:Int):Edge{
+            var kmer = sKmer
+            var end = sEnd
+            val sb = StringBuilder()
+            while (true){
+                val node = nodes[Pair(kmer,end)]!!
+                sb.append(if (end==1) kmer.last() else UtilString.supl[kmer[0]])
+                if (node.edges.size!=1) break
+                val (tkmer,reversed) = node.dest(0)
+                kmer = tkmer
+                end = end xor reversed
+            }
+            return Edge(HashSet<Int>(),HashSet<Int>(),HashSet<Int>(),sb.toString())
         }
-        fun dfs(kmer:String, end:Int):StringBuilder {
-            visit.add(kmer)
-            val node = nodes[Pair(kmer,end)]!!
-            val edge = node.edges
-            if (edge.isEmpty()) return StringBuilder()
-            readSet.addAll(node.readStart)
-            readSet.removeAll(node.readEnd)
-            val bestBranch = edge.maxBy{ (readSet intersect it.readSet).size}!!
-            val (tkmer,reversed) = node.dest(bestBranch)
-            bestBranch.readSet.removeAll(readSet)
-            return dfs(tkmer,end xor reversed).append(if (end==0) bestBranch.seq else UtilString.reverse(bestBranch.seq))
+        fun dfs(sKmer:String, sEnd:Int):StringBuilder {
+            var kmer = sKmer
+            var end = sEnd
+            val sb = StringBuilder()
+            val readSet = HashSet<Int>()
+            while (true){
+                visit.add(kmer)
+                val node = nodes[Pair(kmer,end)]!!
+                val edge = node.edges
+                if (edge.isEmpty()) break
+                readSet.addAll(node.readStart)
+                readSet.removeAll(node.readEnd)
+                val bestBranch = edge.maxBy{ (readSet intersect it.readSet).size}!!
+                bestBranch.readSet.removeAll(readSet)
+                sb.append(if (end==1) bestBranch.seq else UtilString.reverse(bestBranch.seq))
+                val (tkmer,reversed) = node.dest(bestBranch)
+                kmer = tkmer
+                end = end xor reversed
+            }
+            return sb
         }
         val leafs = arrayListOf<Pair<Pair<String,Int>,Int>>()
         for ((pair,node) in nodes)
@@ -120,10 +137,8 @@ class Assembler() {
         leafs.sortBy { -it.second }
         for ((pair,_) in leafs)
             if (!visit.contains(pair.first)){
-                readSet.clear()
-                val s = dfs(pair.first,pair.second xor 1)
-                        .append(if (pair.second==0) UtilString.reverse(pair.first) else pair.first)
-                contigs.add(s.toString())
+                val s = (if (pair.second==1) UtilString.reverse(pair.first) else pair.first) + dfs(pair.first,pair.second xor 1).toString()
+                contigs.add(s)
             }
         println("[Assembly] ${contigs.size} contigs generated")
     }
