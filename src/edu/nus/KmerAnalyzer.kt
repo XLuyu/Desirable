@@ -56,23 +56,28 @@ class KmerAnalyzer(val settings: Desirable) {
     }
     fun filterTargetByControl(): HashMap<Long,Long>  {
         val exKmer = filterTargetKmerByControl()
+        val extendKmer = HashMap<Long,Long>()
+        File(settings.tmpDir,"exkmer").writeText(exKmer.keys.joinToString(separator = "\n"))
+        var readcount = 0
         for (f in settings.files[0]){
             val seqReader = ReadFileReader(f,"Collect Exclusive Read")
             while (seqReader.nextRead()){
                 val kmerList = seqReader.decomposeKmer(settings.K)
                 if (!kmerList.any{ it in exKmer}) continue
-                kmerList.filter { bf.contains(it) } .forEach { exKmer[it] = 1 }
+                kmerList.filter { bf.contains(it) } .forEach { extendKmer[it] = 1 }
+                readcount += 1
             }
         }
+        println("ReadCount=$readcount")
         val targetReader = settings.countFiles[0].bufferedReader()
         while (targetReader.ready()) {
             val (targetKmer, targetFreq) = targetReader.readLine().split('\t')
             val kmer = Util.canonical(targetKmer)
             val freq = targetFreq.toLong()
-            if (!exKmer.contains(kmer)) continue
-            if (freq < troughAndPeak[0].first) exKmer.remove(kmer) else exKmer[kmer] = freq
+            if (!extendKmer.contains(kmer)) continue
+            if (freq < troughAndPeak[0].first) extendKmer.remove(kmer) else extendKmer[kmer] = freq
         }
-        println("[Kmer] ${exKmer.size} Kmers in reads containing exclusive Kmers")
-        return exKmer
+        println("[Kmer] ${extendKmer.size} Kmers in reads containing exclusive Kmers")
+        return extendKmer
     }
 }

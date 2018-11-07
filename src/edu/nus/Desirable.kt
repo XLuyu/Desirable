@@ -9,7 +9,7 @@ import com.github.ajalt.clikt.parameters.types.*
 import edu.gatech.kanalyze.module.KAnalyzeModule
 import java.io.File
 
-class Desirable : CliktCommand(help =
+object Desirable : CliktCommand(help =
 """FILES is a list of sequencing files (fasta or fastq, may be with .gz suffix) given in following format:
     + t_1.fq t_2.fq - bg1_1.fq.gz bg1_2.fq.gz - bg_s2_1.fa bg_s2_2.fa
     where target sample is given with leading '+' and each background sample is given with leading '-'
@@ -20,6 +20,11 @@ class Desirable : CliktCommand(help =
     val output by option("-o", help = "Output file path").file().default(File("DesirableOut.fasta"))
     val tmpDir: File by option("-d", help = "Temporary folder for intermediate results").file(exists = false).default(File("DesirableTmp"))
     val files: Array<ArrayList<File>> by argument().multiple().transformAll { tokenizer(it) }
+    val platform = System.getProperty("os.name").split(" ")[0]
+    val jarPath = File(this.javaClass.getResource("").path.split(':').last().split('!').first()).parent
+    val KMCDir = when {"indows" in platform -> "win"; "ac" in platform -> "mac"; else -> "linux" }
+    val KMCPath = File(jarPath,KMCDir+File.separatorChar+if (platform.contains("indows")) "kmer_counter.exe" else "kmc")
+    val KMCToolsPath = File(jarPath,KMCDir+File.separatorChar+if (platform.contains("indows")) "kmc_tools.exe" else "kmc_tools")
     var countFiles: Array<File> = arrayOf()
 
     fun tokenizer(control: List<String>):Array<ArrayList<File>> {
@@ -44,23 +49,37 @@ class Desirable : CliktCommand(help =
                 "-c kmercount:2 " +
                 "-o ${countFile.path} " +
                 "-f $format ${files.joinToString(separator=" ") { it.path }}"
-        println("[KmerCount] ====== start ======\n[KmerCount] Command: $arguments")
-        val runtime = kotlin.system.measureTimeMillis { KAnalyzeModule.main(arguments.split(" ").toTypedArray()) }
-        println("[KmerCount] finished in ${runtime/1000} seconds")
+//        println("[KmerCount] ====== start ======\n[KmerCount] Command: $arguments")
+//        val runtime = kotlin.system.measureTimeMillis { KAnalyzeModule.main(arguments.split(" ").toTypedArray()) }
+//        println("[KmerCount] finished in ${runtime/1000} seconds")
         return countFile
     }
-
+    fun logRuntime(module:String, info:String="", cmd:String){
+        println("============== $module ==============\n$info")
+        val runtime = kotlin.system.measureTimeMillis{
+            val builder = ProcessBuilder(cmd.split(" "))
+            builder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+            builder.redirectError(ProcessBuilder.Redirect.INHERIT)
+            val p = builder.start()
+            p.waitFor()
+        }
+        println("[OK] finished in ${runtime/1000} seconds")
+    }
     override fun run() {
         tmpDir.mkdirs()
-        countFiles = files.map { countKmerInFile(it) }.toTypedArray()
-        val ka = KmerAnalyzer(this)
-        val exclusiveKmers = ka.filterTargetByControl()
-        val assembler = Assembler(this)
-        assembler.constructGraphFromKmerSet(exclusiveKmers)
+        val ko = KmerOperator(files)
+        val exclusiveKmers = ko.run()
+//        val exclusiveKmers = arrayListOf(File(Desirable.tmpDir,"ExtendedKmer"),File(Desirable.tmpDir,"ExclusiveRead.fastq"))
+//        countFiles = files.map { countKmerInFile(it) }.toTypedArray()
+//        val ka = KmerAnalyzer(this)
+//        val exclusiveKmers = ka.filterTargetByControl()
+        val assembler = Assembler()
+        assembler.constructGraphFromKmerSet(exclusiveKmers[0])
+        assembler.loadReadsOnKmer(exclusiveKmers.subList(1,2).toTypedArray())
         assembler.getContigByTraverse()
-        assembler.writeContigsToFasta(minLength)
+        assembler.writeContigsToFasta(output,minLength)
 //        tmpDir.deleteRecursively()
     }
 }
 
-fun main(args: Array<String>) = Desirable().main(if (args.isEmpty()) arrayOf("--help") else args)
+fun main(args: Array<String>) = Desirable.main(if (args.isEmpty()) arrayOf("--help") else args)
