@@ -3,15 +3,14 @@ package edu.nus
 import java.io.File
 import java.util.zip.GZIPInputStream
 import me.tongfei.progressbar.ProgressBar
-import java.io.FileInputStream
-import java.io.InputStream
 import java.io.RandomAccessFile
 import java.nio.channels.Channels
 
+val complement = mapOf<Char, Char>('A' to 'T', 'C' to 'G', 'G' to 'C', 'T' to 'A')
+fun String.revCompl() = this.map { complement[it] }.reversed().joinToString(separator = "")
 object UtilString {
-    val supl = mapOf<Char, Char>('A' to 'T', 'C' to 'G', 'G' to 'C', 'T' to 'A')
-    fun reverse(kmer: String) = kmer.reversed().map { supl[it] }.joinToString(separator = "")
-    fun canonical(kmer: String) = if (kmer[kmer.length / 2] in "AC") Pair(kmer, 0) else Pair(reverse(kmer), 1)
+    fun reverse(kmer: StringBuilder) = kmer.reversed().map { complement[it] }.joinToString(separator = "")
+    fun canonical(kmer: String) = if (kmer[kmer.length / 2] in "AC") Pair(kmer, 0) else Pair(kmer.revCompl(), 1)
 }
 
 object Util {

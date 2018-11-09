@@ -56,10 +56,7 @@ object Desirable : CliktCommand(help =
         val exclusiveKmers = ko.run()
 //        val exclusiveKmers = arrayListOf(File(Desirable.tmpDir,"ExtendedKmer"),File(Desirable.tmpDir,"ExclusiveRead.fastq"))
         val assembler = Assembler()
-        assembler.constructGraphFromKmerSet(exclusiveKmers[0])
-        assembler.loadReadsOnKmer(exclusiveKmers.subList(1,2).toTypedArray())
-        assembler.getContigByTraverse()
-        assembler.writeContigsToFasta(output,minLength)
+        assembler.run(exclusiveKmers[0],exclusiveKmers[1],output, minLength)
 //        tmpDir.deleteRecursively()
     }
 }
