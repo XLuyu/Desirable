@@ -63,8 +63,8 @@ class KmerOperator(val readFiles: Array<ArrayList<File>>) {
         val complexScript = File(Desirable.tmpDir,"ComplexScript.kmc")
         val inputList = countFiles.mapIndexed { i, file -> "set${i+1} = $file -ci${thoughPeaks[i].first}" }.joinToString(separator = "\n")
         val outputOps = "$outputFile = ${countFiles.indices.joinToString(separator = " - ") { "set${it+1}" }}"
-        complexScript.writeText("INPUT:\n$inputList\nOUTPUT:\n$outputOps\nOUTPUT_PARAMS:\n")
-        var cmd = "${Desirable.KMCToolsPath} complex $complexScript"
+        complexScript.writeText("INPUT:\n$inputList\nOUTPUT:\n$outputOps\n")
+        var cmd = "${Desirable.KMCToolsPath} complex $complexScript" // exclude positive solid kmer by negative solid kmer
         Desirable.logRuntime("KMC","cmd: $cmd\nScreen Exclusive Kmer in ${sampleNames[0]}",cmd)
         cmd = "${Desirable.KMCToolsPath} transform $outputFile dump $outputFile"
         Desirable.logRuntime("KMC","cmd: $cmd\nDump Kmer in ${sampleNames[0]}",cmd)
@@ -73,17 +73,17 @@ class KmerOperator(val readFiles: Array<ArrayList<File>>) {
 
     private fun getExclusiveReadInTarget(countFiles: File, exKmerFile: File): File {
         val outputFile = File(Desirable.tmpDir,"ExclusiveRead.fastq")
-        val cmd = "${Desirable.KMCToolsPath} filter $exKmerFile @$countFiles -ci0.8 $outputFile"
+        val cmd = "${Desirable.KMCToolsPath} filter $exKmerFile @$countFiles -ci0.8 $outputFile" // fetch reads with >80% its kmers are exclusive, @countFiles means a list
         Desirable.logRuntime("KMC","cmd: $cmd\nScreen Exclusive Read in ${sampleNames[0]}",cmd)
         return outputFile
     }
 
     private fun getExtendedKmerInReads(exReadFile: File, countFile: File?, ci:Int): File {
         val rawKmer = File(Desirable.tmpDir,"rawKmer")
-        var cmd = "${Desirable.KMCPath} -k${Desirable.K} -ci1 -cs1000000000 $exReadFile $rawKmer $tmp"
+        var cmd = "${Desirable.KMCPath} -k${Desirable.K} -ci1 -cs1000000000 $exReadFile $rawKmer $tmp" // KMC the subset reads
         Desirable.logRuntime("KMC","cmd: $cmd\nCount raw extended Kmer in ${sampleNames[0]}",cmd)
         val outputFile = File(Desirable.tmpDir,"ExtendedKmer")
-        cmd = "${Desirable.KMCToolsPath} simple $rawKmer $countFile intersect $outputFile -ocmax -ci$ci"
+        cmd = "${Desirable.KMCToolsPath} simple $rawKmer $countFile intersect $outputFile -ocmax -ci$ci" // filter out solid kmer
         Desirable.logRuntime("KMC","cmd: $cmd\nScreen solid extended Kmer in ${sampleNames[0]}",cmd)
         cmd = "${Desirable.KMCToolsPath} transform $outputFile dump $outputFile"
         Desirable.logRuntime("KMC","cmd: $cmd\nDump Kmer in ${sampleNames[0]}",cmd)

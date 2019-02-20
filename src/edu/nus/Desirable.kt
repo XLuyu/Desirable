@@ -6,7 +6,6 @@ import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.arguments.transformAll
 import com.github.ajalt.clikt.parameters.options.*
 import com.github.ajalt.clikt.parameters.types.*
-import edu.gatech.kanalyze.module.KAnalyzeModule
 import java.io.File
 
 object Desirable : CliktCommand(help =
@@ -44,6 +43,10 @@ object Desirable : CliktCommand(help =
             builder.redirectError(ProcessBuilder.Redirect.INHERIT)
             val p = builder.start()
             p.waitFor()
+            if (p.exitValue()!=0) {
+                println("[Error] invoked program failed!")
+                kotlin.system.exitProcess(1)
+            }
         }
         println("[OK] finished in ${runtime/1000} seconds")
     }
@@ -55,7 +58,7 @@ object Desirable : CliktCommand(help =
         val ko = KmerOperator(files)
         val exclusiveKmers = ko.run()
 //        val exclusiveKmers = arrayListOf(File(Desirable.tmpDir,"ExtendedKmer"),File(Desirable.tmpDir,"ExclusiveRead.fastq"))
-        val assembler = Assembler()
+        val assembler = Assembler(K)
         assembler.run(exclusiveKmers[0],exclusiveKmers[1],output, minLength)
 //        tmpDir.deleteRecursively()
     }

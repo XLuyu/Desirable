@@ -20,7 +20,7 @@ object Util {
     fun encode(kmer: String): Long = kmer.mapIndexed { i, ch -> ch.toLong() ushr 1 and 3 shl (2 * K - 2 * (i + 1)) }.sum()
     fun decode(kmer: Long): String = (2 * K - 2 downTo 0 step 2).map { decodeTable[(kmer ushr it and 3).toInt()] }.joinToString(separator = "")
     fun reverse(kmer: Long): Long = (2..2 * K step 2).map { kmer ushr (2 * K - it) and 3 xor 2 shl (it - 2) }.sum()
-    fun canonical(kmer: String): Long = canonical(encode(kmer)).first
+    fun canonical(kmer: String) = canonical(encode(kmer))
     fun canonical(kmer: Long): Pair<Long, Int> {
         val rc = reverse(kmer)
         return if (kmer < rc) Pair(kmer, 0) else Pair(rc, 1)

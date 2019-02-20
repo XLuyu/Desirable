@@ -3,23 +3,24 @@ package edu.nus
 import java.io.File
 
 
-class Assembler() {
-    val nodes = HashMap<Pair<String,Int>,Node>()
+class Assembler(K: Int) {
+    val nodes = HashMap<Pair<Long,Int>,Node>()
     val contigs = mutableListOf<String>()
+    val mask = (1L shl 2*K)-1
 
     data class Edge(val readStart: HashSet<Int>, val readSet: HashSet<Int>, val readEnd: HashSet<Int>, var seq:StringBuilder){
         // seq is store as if append after this kmer
         constructor(s: HashSet<Int>, t: HashSet<Int>, e: HashSet<Int>, c:Char) : this(s,t,e,StringBuilder(c.toString()))
     }
-    class Node(val kmer:String, val end:Int, val readStart: HashSet<Int>, val readEnd: HashSet<Int>) {
+    class Node(val kmer:Long, val end:Int, val readStart: HashSet<Int>, val readEnd: HashSet<Int>) {
         val edges:ArrayList<Edge> = arrayListOf<Edge>()
-        fun dest(e:Edge):Pair<String,Int> {
-            val t = ((if (end==0) kmer.revCompl() else kmer)+e.seq).takeLast(kmer.length)
-            return UtilString.canonical(t).let { Pair(it.first,it.second xor 1) }
+        fun dest(e:Edge):Pair<Long,Int> {
+            val t = (Util.decode(kmer).let{if (end==0) it.revCompl() else it}+e.seq).takeLast(Desirable.K)
+            return Util.canonical(t).let { Pair(it.first,it.second xor 1) }
         }
-        fun dest(i:Int):Pair<String,Int>{
-            val t = ((if (end==0) kmer.revCompl() else kmer)+edges[i].seq).takeLast(kmer.length)
-            return UtilString.canonical(t).let { Pair(it.first,it.second xor 1) }
+        fun dest(i:Int):Pair<Long,Int>{
+            val t = (Util.decode(kmer).let{if (end==0) it.revCompl() else it}+edges[i].seq).takeLast(Desirable.K)
+            return Util.canonical(t).let { Pair(it.first,it.second xor 1) }
         }
     }
     fun Node.otherEnd() = nodes[Pair(kmer, end xor 1)]!!
@@ -28,34 +29,32 @@ class Assembler() {
         val kmers = HashMap<Long, Long>()
         kmerfile.forEachLine {
             val (kmer,count) = it.split('\t')
-            kmers[Util.canonical(kmer)] = count.toLong()
+            kmers[Util.canonical(kmer).first] = count.toLong()
         }
         println("[Kmer] ${kmers.size} Kmers in reads containing exclusive Kmers")
-        for ((kmerCode,_) in kmers) {
-            val kmer = UtilString.canonical(Util.decode(kmerCode)).first
+        for ((kmer,_) in kmers) {
             nodes[Pair(kmer, 0)] = Node(kmer, 0, HashSet<Int>(), HashSet<Int>())
             nodes[Pair(kmer, 1)] = Node(kmer, 1, HashSet<Int>(), HashSet<Int>())
         }
-        for ((kmerCode,_) in kmers) {
-            val kmer = UtilString.canonical(Util.decode(kmerCode)).first
-            val prefix = kmer.substring(0, kmer.length - 1)
-            val suffix = kmer.substring(1)
-            for (c in "ATCG"){
-                val (cp, cpr) = UtilString.canonical(c+prefix)
-                val (sc, scr) = UtilString.canonical(suffix+c)
-                if (Util.canonical(cp) in kmers && Util.canonical(cp)<kmerCode) {
+        for ((kmer,_) in kmers) {
+            val prefix = kmer ushr 2
+            val suffix = (kmer and (mask ushr 2)) shl 2
+            for (c in 0..3){
+                val (cp, cpr) = Util.canonical((c.toLong() shl (2*Desirable.K-2))+prefix)
+                val (sc, scr) = Util.canonical(suffix+c)
+                if (cp in kmers && cp<kmer) {
                     val newStart = HashSet<Int>()
                     val newEnd = HashSet<Int>()
                     val newSet = HashSet<Int>()
-                    nodes[Pair(kmer, 0)]!!.edges.add(Edge(newStart,newSet,newEnd, complement[c]!!))
-                    nodes[Pair(cp, 1-cpr)]!!.edges.add(Edge(newStart,newSet,newEnd, kmer.last()))
+                    nodes[Pair(kmer, 0)]!!.edges.add(Edge(newStart,newSet,newEnd, Util.decodeTable[c xor 2]))
+                    nodes[Pair(cp, 1-cpr)]!!.edges.add(Edge(newStart,newSet,newEnd, Util.decodeTable[(kmer % 4).toInt()]))
                 }
-                if (Util.canonical(sc) in kmers && Util.canonical(sc)<kmerCode) {
+                if (sc in kmers && sc<kmer) {
                     val newStart = HashSet<Int>()
                     val newEnd = HashSet<Int>()
                     val newSet = HashSet<Int>()
-                    nodes[Pair(kmer,1)]!!.edges.add(Edge(newStart,newSet,newEnd, c))
-                    nodes[Pair(sc, scr)]!!.edges.add(Edge(newStart,newSet,newEnd, complement[kmer[0]]!!))
+                    nodes[Pair(kmer,1)]!!.edges.add(Edge(newStart,newSet,newEnd, Util.decodeTable[c]))
+                    nodes[Pair(sc, scr)]!!.edges.add(Edge(newStart,newSet,newEnd, Util.decodeTable[(kmer ushr (2*Desirable.K-2)).toInt() xor 2]))
                 }
             }
         }
@@ -69,7 +68,7 @@ class Assembler() {
             val code = (file.absolutePath+seqReader.readname).hashCode()
             val seq = seqReader.seq!!
             for (i in 0..(seq.length-k)){
-                val node = nodes[UtilString.canonical(seq.substring(i,i+k))]
+                val node = nodes[Util.canonical(seq.substring(i,i+k))]
                 if (node!=null) {
                     node.readEnd.add(code)
                     node.otherEnd().readStart.add(code)
@@ -77,7 +76,7 @@ class Assembler() {
                 }
             }
             for (i in (seq.length-k) downTo 0){
-                val node = nodes[UtilString.canonical(seq.substring(i,i+k))]
+                val node = nodes[Util.canonical(seq.substring(i,i+k))]
                 if (node!=null) {
                     node.readStart.add(code)
                     node.otherEnd().readEnd.add(code)
@@ -88,13 +87,13 @@ class Assembler() {
     }
 
     private fun pathContraction() {
-        fun compactChain(sKmer:String, sEnd:Int): Edge{
+        fun compactChain(sKmer:Long, sEnd:Int): Edge{
             var kmer = sKmer
             var end = sEnd
             val edge = Edge(HashSet<Int>(),HashSet<Int>(),HashSet<Int>(),StringBuilder())
             while (true){
                 val node = nodes[Pair(kmer,end)]!!
-                edge.seq.append(if (end==1) kmer.last() else complement[kmer[0]])
+                edge.seq.append(Util.decodeTable[(if (end==1) (kmer % 4) else kmer.ushr(2*Desirable.K-2).xor(2)).toInt()])
                 if (node.edges.size!=1 || node.otherEnd().edges.size!=1) break
                 edge.readStart.addAll(node.readStart)
                 edge.readEnd.addAll(node.readEnd)
@@ -125,7 +124,7 @@ class Assembler() {
             val code = (file.absolutePath+seqReader.readname).hashCode()
             val seq = seqReader.seq!!
             for (i in k .. seq.length){
-                val node = nodes[UtilString.canonical(seq.substring(i-k,i))]
+                val node = nodes[Util.canonical(seq.substring(i-k,i))]
                 if (node!=null) {
                     if (k<i){
                         val c = complement[seq[i-k-1]]
@@ -141,8 +140,8 @@ class Assembler() {
     }
 
     fun getContigByTraverse() {
-        val visit = HashMap<String,Int>()
-        fun dfs(sKmer:String, sEnd:Int):StringBuilder {
+        val visit = HashMap<Long,Int>()
+        fun dfs(sKmer:Long, sEnd:Int):StringBuilder {
             var kmer = sKmer
             var end = sEnd
             val sb = StringBuilder()
@@ -167,7 +166,7 @@ class Assembler() {
             }
             return sb
         }
-        val leafs = arrayListOf<Pair<Pair<String,Int>,Int>>()
+        val leafs = arrayListOf<Pair<Pair<Long,Int>,Int>>()
         for ((pair,node) in nodes)
             if (node.edges.isEmpty()) {
                 leafs.add(Pair(pair,node.otherEnd().edges.map { it.seq.length }.max()?:0 ))
@@ -175,7 +174,7 @@ class Assembler() {
         leafs.sortBy { -it.second }
         for ((pair,_) in leafs)
             if (!visit.contains(pair.first)){
-                val s = (if (pair.second==1) pair.first.revCompl() else pair.first) + dfs(pair.first,pair.second xor 1).toString()
+                val s = Util.decode(if (pair.second==1) Util.reverse(pair.first) else pair.first) + dfs(pair.first,pair.second xor 1).toString()
                 contigs.add(s)
             }
         println("[Assembly] ${contigs.size} contigs generated")
