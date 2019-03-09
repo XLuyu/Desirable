@@ -4,7 +4,7 @@ import java.io.File
 
 
 class Assembler(var K: Int) {
-    val nodes = java.util.TreeMap<Long,Node>()
+    val nodes = HashMap<Long,Node>()
     val contigs = mutableListOf<String>()
     val mask = (1L shl 2*K)-1
 
@@ -30,10 +30,10 @@ class Assembler(var K: Int) {
             nodes[ ckmer] = Node( ckmer)
         }
         if (nodes.size==0) {
-            println("[Finish] No exclusive sequence. All k-mers in positive sample(+ files) occur in given negative sample(- files)")
+            println("[Assembler] No exclusive sequence. All k-mers in positive sample(+ files) occur in given negative sample(- files)")
             System.exit(1)
         }
-        println("[Kmer] ${nodes.size/2} Kmers in reads containing exclusive Kmers")
+        println("[Assembler] Loaded ${nodes.size/2} Nodes")
         val placeholder = HashSet<Long>()
         for ((kmer,_) in nodes) if (kmer>0) {
             val prefix = kmer ushr 2
@@ -45,7 +45,7 @@ class Assembler(var K: Int) {
                 if (sc in nodes) nodes[-kmer]!!.edges.add(Edge(placeholder, Util.decodeTable[c]))
             }
         }
-        println("</constructGraphFromKmerSet> de bruijn graph construction finished. Edge: ${nodes.map { it.value.edges.size } .sum()}")
+        println("[Assembler] created ${nodes.map { it.value.edges.size } .sum()} Edges")
     }
     private fun pathContraction() {
         fun compactChain(sKmer:Long): Edge{
@@ -133,10 +133,10 @@ class Assembler(var K: Int) {
                 val s = Util.decode(if (skmer<0) Util.reverse(Math.abs(skmer)) else skmer) + dfs(-skmer).toString()
                 contigs.add(s)
             }
-        println("[Assembly] ${contigs.size} contigs generated")
+        println("[Assembler] ${contigs.size} contigs generated")
     }
     fun writeContigsToFasta(file: File, lengthLimit:Int = 0){
-        println("Congtig > $lengthLimit: ${contigs.count { it.length>lengthLimit }}")
+        println("[Assembler] Congtig > $lengthLimit bp: ${contigs.count { it.length>lengthLimit }}")
         val writer = file.writer()
         for ((counter, contig) in contigs.filter { it.length>lengthLimit }.withIndex()){
             writer.write(">ExSeq${counter}_${contig.length}\n$contig\n")

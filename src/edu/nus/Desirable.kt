@@ -31,17 +31,15 @@ object Desirable : CliktCommand(help =
         val fileGroup = Array<ArrayList<File>>(control.count { it=="+" || it=="-" },{ arrayListOf<File>() })
         if (control[0]!="+") throw PrintMessage("Sequence files for target sample should be specified before others, with leading '+' ")
         var row = -1
-        for (token in control)
-            if (token=="+" || token=="-") row += 1 else fileGroup[row].add(File(token))
+        for (token in control) if (token=="+" || token=="-") row += 1 else fileGroup[row].add(File(token))
         return fileGroup
     }
     fun logRuntime(module:String, info:String="", cmd:String){
-        println("============== $module ==============\n$info")
+        print("[$module] $info")
         val runtime = kotlin.system.measureTimeMillis{
-            val builder = ProcessBuilder(cmd.split(" "))
-            builder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
-            builder.redirectError(ProcessBuilder.Redirect.INHERIT)
-            val p = builder.start()
+            val p = ProcessBuilder(cmd.split(" "))
+                    .redirectOutput(ProcessBuilder.Redirect.INHERIT)
+                    .redirectError(ProcessBuilder.Redirect.INHERIT).start()
             p.waitFor()
             if (p.exitValue()!=0) {
                 println("[Error] invoked program failed!")

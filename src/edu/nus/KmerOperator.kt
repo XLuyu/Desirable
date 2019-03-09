@@ -16,10 +16,11 @@ class KmerOperator(val readFiles: Array<ArrayList<File>>) {
             val column = sampleNames.map { it[i] }
             column.any { it!=column[0] }
         }!!
-        val end = (1..minLen).find{ i ->
+        var end = (1..minLen).find{ i ->
             val column = sampleNames.map { it[it.length-i] }
             column.any { it!=column[0] }
         }!!
+        if (start+end-1>=minLen) end = 1
         return sampleNames.map { it.substring(start).dropLast(end-1) }.toTypedArray()
     }
 
@@ -28,7 +29,7 @@ class KmerOperator(val readFiles: Array<ArrayList<File>>) {
             val sampleFile = File(Desirable.tmpDir,sampleNames[i])
             sampleFile.writeText(sample.joinToString("\n") { file->file.absolutePath })
             val cmd = "${Desirable.KMCPath} -k${Desirable.K} -cs1000000000 @$sampleFile $sampleFile $tmp"
-            Desirable.logRuntime("KMC","cmd: $cmd\nCount Kmer: ${sampleNames[i]}",cmd)
+            Desirable.logRuntime("KMC/Count","<${sampleNames[i]}> \"$cmd\"\n",cmd)
             sampleFile
         }.toTypedArray()
 
@@ -36,25 +37,25 @@ class KmerOperator(val readFiles: Array<ArrayList<File>>) {
         countFiles.mapIndexed { i, sample->
             val histoFile = File(Desirable.tmpDir,sampleNames[i]+".histo")
             val cmd = "${Desirable.KMCToolsPath} transform $sample histogram $histoFile -cx1000000"
-            Desirable.logRuntime("KMC","cmd: $cmd\nKmer Histogram: ${sampleNames[i]}",cmd)
+            Desirable.logRuntime("KMC/Histogram","<${sampleNames[i]}> \"$cmd\"\n",cmd)
             histoFile
         }.toTypedArray()
 
     fun getSpectrumTroughPeak(histoFile: File): Pair<Int, Int> { // get first local minimum in kmer spectrum
         val spectrum = histoFile.readLines().map {
-            val tokens = it.split('\t');
-            Pair(tokens.first().toLong(),tokens.last().toLong())
-        }.toTypedArray()
+            line -> line.split('\t').let { Pair(it.first().toLong(),it.last().toLong()) }
+        }.filter { it.second!=0L } .toTypedArray()
+        spectrum.sortBy { it.first }
         val total = spectrum.map { it.first * it.second }.sum()
         var accumulate = 0L
-        var trough = spectrum.indices.first {
-            if (spectrum[it].second <= spectrum[it + 1].second) return@first true
-            accumulate += spectrum[it].first * spectrum[it].second
-            (accumulate > total * 0.5)
+        val N70 = spectrum.first {
+            accumulate += it.first * it.second
+            (accumulate > total * 0.3)
         }
-        if (accumulate > total * 0.5) trough = 0
-        val peak = spectrum.filter { it.first>=trough }.maxBy { it.first * it.second }!!.first
-        println("[KmerOperator]\n In ${histoFile.name}:\nTrough (Error threshold): $trough\nPeak (Coverage): $peak")
+        var trough = spectrum.filter { it.first<=N70.first }.minBy { it.second }!!.first
+        if (trough == N70.first) trough = 0
+        val peak = spectrum.filter { it.first>trough }.maxBy { it.first * it.second }!!.first
+        println("[KmerOperator] <${histoFile.name}>\nKmer N70: $N70\nTrough (Error threshold): $trough\nPeak (Coverage): $peak")
         return Pair(trough.toInt(), peak.toInt())
     }
 
@@ -65,28 +66,36 @@ class KmerOperator(val readFiles: Array<ArrayList<File>>) {
         val outputOps = "$outputFile = ${countFiles.indices.joinToString(separator = " - ") { "set${it+1}" }}"
         complexScript.writeText("INPUT:\n$inputList\nOUTPUT:\n$outputOps\n")
         var cmd = "${Desirable.KMCToolsPath} complex $complexScript" // exclude positive solid kmer by negative solid kmer
-        Desirable.logRuntime("KMC","cmd: $cmd\nScreen Exclusive Kmer in ${sampleNames[0]}",cmd)
+        Desirable.logRuntime("KMC/Complex","<${sampleNames[0]}> Exclusive Kmer \"$cmd\"\n",cmd)
         cmd = "${Desirable.KMCToolsPath} transform $outputFile dump $outputFile"
-        Desirable.logRuntime("KMC","cmd: $cmd\nDump Kmer in ${sampleNames[0]}",cmd)
+        Desirable.logRuntime("KMC/Dump","<${sampleNames[0]}> \"$cmd\"\n",cmd)
+        if (outputFile.length()<Desirable.K) {
+            println("[KMC] No exclusive K-mer. Please try a larger K.")
+            System.exit(1)
+        }
         return outputFile
     }
 
     private fun getExclusiveReadInTarget(countFiles: File, exKmerFile: File): File {
         val outputFile = File(Desirable.tmpDir,"ExclusiveRead.fastq")
         val cmd = "${Desirable.KMCToolsPath} filter $exKmerFile @$countFiles -ci0.8 $outputFile" // fetch reads with >80% its kmers are exclusive, @countFiles means a list
-        Desirable.logRuntime("KMC","cmd: $cmd\nScreen Exclusive Read in ${sampleNames[0]}",cmd)
+        Desirable.logRuntime("KMC/FilterRead","<${sampleNames[0]}> Exclusive Read \"$cmd\"\n",cmd)
+        if (outputFile.length()<Desirable.K) {
+            println("[KMC] No exclusive sequencing as exclusive k-mers are dispersed. Please try a larger K.")
+            System.exit(1)
+        }
         return outputFile
     }
 
     private fun getExtendedKmerInReads(exReadFile: File, countFile: File?, ci:Int): File {
         val rawKmer = File(Desirable.tmpDir,"rawKmer")
         var cmd = "${Desirable.KMCPath} -k${Desirable.K} -ci1 -cs1000000000 $exReadFile $rawKmer $tmp" // KMC the subset reads
-        Desirable.logRuntime("KMC","cmd: $cmd\nCount raw extended Kmer in ${sampleNames[0]}",cmd)
+        Desirable.logRuntime("KMC/Count","<${sampleNames[0]}> \"$cmd\"\n",cmd)
         val outputFile = File(Desirable.tmpDir,"ExtendedKmer")
         cmd = "${Desirable.KMCToolsPath} simple $rawKmer $countFile intersect $outputFile -ocmax -ci$ci" // filter out solid kmer
-        Desirable.logRuntime("KMC","cmd: $cmd\nScreen solid extended Kmer in ${sampleNames[0]}",cmd)
+        Desirable.logRuntime("KMC/Intersect","<${sampleNames[0]}> Solid Extended Kmer \"$cmd\"\n",cmd)
         cmd = "${Desirable.KMCToolsPath} transform $outputFile dump $outputFile"
-        Desirable.logRuntime("KMC","cmd: $cmd\nDump Kmer in ${sampleNames[0]}",cmd)
+        Desirable.logRuntime("KMC/Dump","<${sampleNames[0]}> \"$cmd\"\n",cmd)
         return outputFile
     }
 
