@@ -9,13 +9,14 @@ import com.github.ajalt.clikt.parameters.types.*
 import java.io.File
 
 object Desirable : CliktCommand(help =
-"""FILES is a list of sequencing files (fasta or fastq, may be with .gz suffix) given in following format:
-    + t_1.fq t_2.fq - bg1_1.fq.gz bg1_2.fq.gz - bg_s2_1.fa bg_s2_2.fa
+"""FILES is a list of sequencing files (fastq format, may be with .gz suffix) given in following format:
+    + t_1.fq t_2.fq - bg1_1.fq.gz bg1_2.fq.gz - bg_s2_1.fq bg_s2_2.fq
     where target sample is given with leading '+' and each background sample is given with leading '-'
 """) {
     val threads by option(help = "Threads to use, default by the CPU core number").int().default(Runtime.getRuntime().availableProcessors())
     val K by option("-k", help = "Kmer size").int().default(31).validate { if (it>31 || it%2==0) fail("only support odd K < 32") else Util.K = it }
     val minLength by option("-m", help = "minimum contig length to report").int().default(200)
+    val exclusiveKmerRatio by option("-r", help = "maximum exclusive Kmer ratio in +files").double().default(0.1)
     val output by option("-o", help = "Output file path").file().default(File("DesirableOut.fasta"))
     val tmpDir: File by option("-d", help = "Temporary folder for intermediate results").file(exists = false).default(File("DesirableTmp"))
     val files: Array<ArrayList<File>> by argument().multiple().transformAll { tokenizer(it) }
@@ -29,7 +30,7 @@ object Desirable : CliktCommand(help =
         val illegalFile = control.filter { it!="+" && it!="-" }.filter { !File(it).isFile }
         if (illegalFile.isNotEmpty()) throw PrintMessage("Wrong file path:\n${illegalFile.joinToString(separator="\n")}")
         val fileGroup = Array<ArrayList<File>>(control.count { it=="+" || it=="-" },{ arrayListOf<File>() })
-        if (control[0]!="+") throw PrintMessage("Sequence files for target sample should be specified before others, with leading '+' ")
+        if (control[0]!="+" || control.count{it=="+"}!=1) throw PrintMessage("Sequence files for target sample should be uniquely specified before others, with leading '+' ")
         var row = -1
         for (token in control) if (token=="+" || token=="-") row += 1 else fileGroup[row].add(File(token))
         return fileGroup
